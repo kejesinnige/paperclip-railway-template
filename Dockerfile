@@ -48,18 +48,17 @@ RUN chmod +x /wrapper/entrypoint.sh
 
 # --- PERMISSIONS FIX & RUNTIME SETUP ---
 
-# 1. Ensure the internal directories exist
-RUN mkdir -p /paperclip/instances
+# 1. Create directory and ensure permissions are set for the 'node' user
+# We chown the local dirs now; the Volume will be handled by the entrypoint script.
+RUN mkdir -p /paperclip/instances && \
+    chown -R node:node /app /paperclip /wrapper
 
-# 2. Re-enable the entrypoint script and ensure it's executable
-# We need this to fix the Volume permissions at boot
-RUN chmod +x /wrapper/entrypoint.sh
-
-# 3. Expose the port
+# 2. Expose the Railway port
 EXPOSE 3100
 
-# 4. We stay as ROOT for the entrypoint so it can fix permissions, 
-# then the script itself will switch to the 'node' user.
+# 3. We MUST start as root so the entrypoint script can run 'chown' on the 
+# mounted Railway volume. The script will use 'gosu' to drop down to the 
+# 'node' user before starting the actual Paperclip process.
 USER root
 
 ENTRYPOINT ["/wrapper/entrypoint.sh"]
