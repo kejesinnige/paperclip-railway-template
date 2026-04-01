@@ -1,4 +1,4 @@
-# Build upstream Paperclip from a pinned ref.
+# --- Stage 1: Build upstream Paperclip ---
 FROM node:22-bookworm AS paperclip-build
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -19,7 +19,7 @@ RUN pnpm --filter @paperclipai/plugin-sdk build
 RUN pnpm --filter @paperclipai/server build
 RUN test -f server/dist/index.js
 
-# Runtime image (direct Paperclip server, no wrapper).
+# --- Stage 2: Runtime Image ---
 FROM node:22-bookworm
 ENV NODE_ENV=production
 
@@ -31,6 +31,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 
+# Global tools installation (Claude Code CLI, etc.)
+RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai tsx
+
+# Setup application directories
 WORKDIR /app
 COPY --from=paperclip-build /paperclip /app
 
@@ -42,14 +46,20 @@ COPY scripts/entrypoint.sh /wrapper/entrypoint.sh
 COPY scripts/bootstrap-ceo.mjs /wrapper/template/bootstrap-ceo.mjs
 RUN chmod +x /wrapper/entrypoint.sh
 
-# Optional local adapters/tools parity with upstream Dockerfile.
-RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai
-RUN npm install --global --omit=dev tsx
-RUN mkdir -p /paperclip \
-    && chown -R node:node /app /paperclip /wrapper
+# --- PERMISSIONS FIX FOR CLAUDE CODE ---
+# 1. Create the persistent data directory
+RUN mkdir -p /paperclip/instances
 
-# Railway sets PORT at runtime and this process binds to it.
-# Entrypoint runs as root, fixes /paperclip volume permissions, then execs as node.
+# 2. Ensure the built-in 'node' user owns everything it needs to touch
+RUN chown -R node:node /app /paperclip /wrapper
+
+# 3. Expose the Railway port
 EXPOSE 3100
-ENTRYPOINT ["/wrapper/entrypoint.sh"]
+
+# 4. Switch to the non-root 'node' user. 
+# This is what prevents the "--dangerously-skip-permissions" error.
+USER node
+
+# 5. Start the server
+# We use the direct node command to ensure the process runs as the 'node' user
 CMD ["node", "/wrapper/src/server.js"]
