@@ -46,20 +46,21 @@ COPY scripts/entrypoint.sh /wrapper/entrypoint.sh
 COPY scripts/bootstrap-ceo.mjs /wrapper/template/bootstrap-ceo.mjs
 RUN chmod +x /wrapper/entrypoint.sh
 
-# --- PERMISSIONS FIX FOR CLAUDE CODE ---
-# 1. Create the persistent data directory
+# --- PERMISSIONS FIX & RUNTIME SETUP ---
+
+# 1. Ensure the internal directories exist
 RUN mkdir -p /paperclip/instances
 
-# 2. Ensure the built-in 'node' user owns everything it needs to touch
-RUN chown -R node:node /app /paperclip /wrapper
+# 2. Re-enable the entrypoint script and ensure it's executable
+# We need this to fix the Volume permissions at boot
+RUN chmod +x /wrapper/entrypoint.sh
 
-# 3. Expose the Railway port
+# 3. Expose the port
 EXPOSE 3100
 
-# 4. Switch to the non-root 'node' user. 
-# This is what prevents the "--dangerously-skip-permissions" error.
-USER node
+# 4. We stay as ROOT for the entrypoint so it can fix permissions, 
+# then the script itself will switch to the 'node' user.
+USER root
 
-# 5. Start the server
-# We use the direct node command to ensure the process runs as the 'node' user
+ENTRYPOINT ["/wrapper/entrypoint.sh"]
 CMD ["node", "/wrapper/src/server.js"]
